@@ -98,6 +98,8 @@ base_config = {
 }
 
 
+TRAIN_PERIOD_DAYS = [5, 10, 30]
+
 config_ai = {
         "freqai": {
             "enabled": True,
@@ -147,31 +149,54 @@ config_ai = {
 
 config_use = "/tmp/config.json"
 
-param = 'include_timeframes'
+res = []
+for train_days in TRAIN_PERIOD_DAYS:
+    for tf in ["5m", "15m", "30m", "1h", "2h"]:
+        config = copy.deepcopy(base_config)
+        
+        config["timeframe"] = tf
+        config["freqai"] = copy.deepcopy(config_ai)["freqai"]
+        exp_id = f"tdays{train_days}_" + "_".join([tf])
 
-for tf in ["5m", "15m", "30m", "1h", "2h"]:
+        config['freqai']['train_period_days'] = train_days
+        config['freqai']['identifier'] = exp_id
 
-    config = copy.deepcopy(base_config)
-    config["freqai"] = copy.deepcopy(config_ai)["freqai"]
-    exp_id = "_".join([tf])
-    config['freqai']['feature_parameters'].update({"include_timeframes": [tf]})
-    config['freqai'].update({"identifier": f'test-{param}-{exp_id}'})
-    config_run = f'{config_use}_{exp_id}.json'
-    with open(config_run, 'w') as fid:
-        json.dump(config, fid)
+        config['freqai']['feature_parameters'].update({"include_timeframes": [tf]})
+        config_run = f'{config_use}_{exp_id}.json'
+        with open(config_run, 'w') as fid:
+            json.dump(config, fid, indent=4)
 
-    subprocess.call([
-            #"python3.9", "-m", "freqtrade",
-            "VENV/bin/python3.8", "freqtrade/main.py",
-            "backtesting",
-            "--config", config_run,
-            #"--datadir", "user_data/data/binance/hyperparameters-search",
-            "--freqaimodel", "CatboostPredictionBinaryMultiModel",
-            "--freqaimodel-path", "user_data/freqaimodels/",
-            "--strategy", "FreqaiBinaryClassStrategy",
-            "--strategy-path", "user_data/strategies",
-            "--timerange", "20220715-20220815",
-            "--export", "signals",
-            "--cache", "none",
-            f"--export-filename=user_data/backtest_results/order_{exp_id}.json"
-    ])
+        subprocess.call([
+                #"python3.9", "-m", "freqtrade",
+                "VENV/bin/python3.8", "freqtrade/main.py",
+                "backtesting",
+                "--config", config_run,
+                #"--datadir", "user_data/data/binance/hyperparameters-search",
+                "--freqaimodel", "CatboostPredictionBinaryMultiModel",
+                "--freqaimodel-path", "user_data/freqaimodels/",
+                "--strategy", "FreqaiBinaryClassStrategy",
+                "--strategy-path", "user_data/strategies",
+                "--timerange", "20220715-20220815",
+                "--cache", "none",
+                f"--export-filename=user_data/backtest_results/order_{exp_id}.json"
+        ])
+        # import epdb; epdb.set_trace()
+        bt_fname = f"user_data/backtest_results/order_{exp_id}"
+        import glob
+        files = glob.glob(bt_fname + "*")
+        files = sorted(files)[::-1]
+        for fname in files:
+            if fname.find("meta") >= 0:
+                continue
+            break
+        with open(fname) as fid:
+            bt = json.load(fid)
+        profit = bt["strategy"]["FreqaiBinaryClassStrategy"]["profit_total"]
+        mdd = bt["strategy"]["FreqaiBinaryClassStrategy"]["max_drawdown"]
+        total_trades = len(bt["strategy"]["FreqaiBinaryClassStrategy"]["trades"])
+        win_ratio = bt["strategy"]["FreqaiBinaryClassStrategy"]["wins"] / total_trades
+        # import epdb; epdb.set_trace()
+        res.append([train_days, tf, profit, mdd, win_ratio])
+import pandas as pd
+df = pd.DataFrame(res, columns=["train days", "timeframe", "profit", "max drawdown", "win ratio"])
+print(df)
