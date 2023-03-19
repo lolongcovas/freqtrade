@@ -24,7 +24,7 @@ The framework is built on stable_baselines3 (torch) and OpenAI gym for the base 
 
 ### Important considerations
 
-As explained above, the agent is "trained" in an artificial trading "environment". In our case, that environment may seem quite similar to a real Freqtrade backtesting environment, but it is *NOT*. In fact, the RL training environment is much more simplified. It does not incorporate any of the complicated strategy logic, such as callbacks like `custom_exit`, `custom_stoploss`, leverage controls, etc. The RL environment is instead a very "raw" representation of the true market, where the agent has free-will to learn the policy (read: stoploss, take profit, etc.) which is enforced by the `calculate_reward()`. Thus, it is important to consider that the agent training environment is not identical to the real world.
+As explained above, the agent is "trained" in an artificial trading "environment". In our case, that environment may seem quite similar to a real Freqtrade backtesting environment, but it is *NOT*. In fact, the RL training environment is much more simplified. It does not incorporate any of the complicated strategy logic, such as callbacks like `custom_exit`, `custom_stoploss`, leverage controls, etc. The RL environment is instead a very "raw" representation of the true market, where the agent has free will to learn the policy (read: stoploss, take profit, etc.) which is enforced by the `calculate_reward()`. Thus, it is important to consider that the agent training environment is not identical to the real world.
 
 ## Running Reinforcement Learning
 
@@ -175,10 +175,23 @@ As you begin to modify the strategy and the prediction model, you will quickly r
                 pnl = self.get_unrealized_profit()
 
                 factor = 100
+
+                pair = self.pair.replace(':', '')
+
+                # you can use feature values from dataframe
+                # Assumes the shifted RSI indicator has been generated in the strategy.
+                rsi_now = self.raw_features[f"%-rsi-period-10_shift-1_{pair}_"
+                                f"{self.config['timeframe']}"].iloc[self._current_tick]
+
                 # reward agent for entering trades
-                if action in (Actions.Long_enter.value, Actions.Short_enter.value) \
-                        and self._position == Positions.Neutral:
-                    return 25
+                if (action in (Actions.Long_enter.value, Actions.Short_enter.value)
+                        and self._position == Positions.Neutral):
+                    if rsi_now < 40:
+                        factor = 40 / rsi_now
+                    else:
+                        factor = 1
+                    return 25 * factor
+
                 # discourage agent from not entering trades
                 if action == Actions.Neutral.value and self._position == Positions.Neutral:
                     return -1
@@ -235,13 +248,13 @@ FreqAI also provides a built in episodic summary logger called `self.tensorboard
             """
             def calculate_reward(self, action: int) -> float:
                 if not self._is_valid(action):
-                    self.tensorboard_log("is_valid")
+                    self.tensorboard_log("invalid")
                     return -2
 
 ```
 
 !!! Note
-    The `self.tensorboard_log()` function is designed for tracking incremented objects only i.e. events, actions inside the training environment. If the event of interest is a float, the float can be passed as the second argument e.g. `self.tensorboard_log("float_metric1", 0.23)` would add 0.23 to `float_metric`. In this case you can also disable incrementing using `inc=False` parameter.
+    The `self.tensorboard_log()` function is designed for tracking incremented objects only i.e. events, actions inside the training environment. If the event of interest is a float, the float can be passed as the second argument e.g. `self.tensorboard_log("float_metric1", 0.23)`. In this case the metric values are not incremented.
 
 ### Choosing a base environment
 

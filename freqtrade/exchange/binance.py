@@ -7,7 +7,8 @@ from typing import Dict, List, Optional, Tuple
 import arrow
 import ccxt
 
-from freqtrade.enums import CandleType, MarginMode, TradingMode
+from freqtrade.constants import BuySell
+from freqtrade.enums import CandleType, MarginMode, PriceType, TradingMode
 from freqtrade.exceptions import DDosProtection, OperationalException, TemporaryError
 from freqtrade.exchange import Exchange
 from freqtrade.exchange.common import retrier
@@ -23,7 +24,7 @@ class Binance(Exchange):
     _ft_has: Dict = {
         "stoploss_on_exchange": True,
         "stoploss_order_types": {"limit": "stop_loss_limit"},
-        "order_time_in_force": ['GTC', 'FOK', 'IOC'],
+        "order_time_in_force": ["GTC", "FOK", "IOC", "PO"],
         "ohlcv_candle_limit": 1000,
         "trades_pagination": "id",
         "trades_pagination_arg": "fromId",
@@ -31,7 +32,14 @@ class Binance(Exchange):
     }
     _ft_has_futures: Dict = {
         "stoploss_order_types": {"limit": "stop", "market": "stop_market"},
+        "order_time_in_force": ["GTC", "FOK", "IOC"],
         "tickers_have_price": False,
+        "floor_leverage": True,
+        "stop_price_type_field": "workingType",
+        "stop_price_type_value_mapping": {
+            PriceType.LAST: "CONTRACT_PRICE",
+            PriceType.MARK: "MARK_PRICE",
+        },
     }
 
     _supported_trading_mode_margin_pairs: List[Tuple[TradingMode, MarginMode]] = [
@@ -40,6 +48,26 @@ class Binance(Exchange):
         # (TradingMode.FUTURES, MarginMode.CROSS),
         (TradingMode.FUTURES, MarginMode.ISOLATED)
     ]
+
+    def _get_params(
+        self,
+        side: BuySell,
+        ordertype: str,
+        leverage: float,
+        reduceOnly: bool,
+        time_in_force: str = 'GTC',
+    ) -> Dict:
+        params = super()._get_params(side, ordertype, leverage, reduceOnly, time_in_force)
+        if (
+            time_in_force == 'PO'
+            and ordertype != 'market'
+            and self.trading_mode == TradingMode.SPOT
+            # Only spot can do post only orders
+        ):
+            params.pop('timeInForce')
+            params['postOnly'] = True
+
+        return params
 
     def get_tickers(self, symbols: Optional[List[str]] = None, cached: bool = False) -> Tickers:
         tickers = super().get_tickers(symbols=symbols, cached=cached)
@@ -80,33 +108,6 @@ class Binance(Exchange):
                 f'Error in additional_exchange_init due to {e.__class__.__name__}. Message: {e}'
                 ) from e
 
-        except ccxt.BaseError as e:
-            raise OperationalException(e) from e
-
-    @retrier
-    def _set_leverage(
-        self,
-        leverage: float,
-        pair: Optional[str] = None,
-        trading_mode: Optional[TradingMode] = None,
-        accept_fail: bool = False,
-    ):
-        """
-        Set's the leverage before making a trade, in order to not
-        have the same leverage on every trade
-        """
-        trading_mode = trading_mode or self.trading_mode
-
-        if self._config['dry_run'] or trading_mode != TradingMode.FUTURES:
-            return
-
-        try:
-            self._api.set_leverage(symbol=pair, leverage=round(leverage))
-        except ccxt.DDoSProtection as e:
-            raise DDosProtection(e) from e
-        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
-            raise TemporaryError(
-                f'Could not set leverage due to {e.__class__.__name__}. Message: {e}') from e
         except ccxt.BaseError as e:
             raise OperationalException(e) from e
 
@@ -216,7 +217,7 @@ class Binance(Exchange):
                 leverage_tiers_path = (
                     Path(__file__).parent / 'binance_leverage_tiers.json'
                 )
-                with open(leverage_tiers_path) as json_file:
+                with leverage_tiers_path.open() as json_file:
                     return json_load(json_file)
             else:
                 try:
