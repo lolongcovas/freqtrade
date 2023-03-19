@@ -18,6 +18,7 @@ from freqtrade.data.history import load_pair_history
 from freqtrade.enums import CandleType, RPCMessageType, RunMode
 from freqtrade.exceptions import ExchangeError, OperationalException
 from freqtrade.exchange import Exchange, timeframe_to_seconds
+from freqtrade.exchange.types import OrderBook
 from freqtrade.misc import append_candles_to_dataframe
 from freqtrade.rpc import RPCManager
 from freqtrade.util import PeriodicCache
@@ -423,10 +424,8 @@ class DataProvider:
         """
         if self._exchange is None:
             raise OperationalException(NO_EXCHANGE_EXCEPTION)
-        if helping_pairs:
-            self._exchange.refresh_latest_ohlcv(pairlist + helping_pairs)
-        else:
-            self._exchange.refresh_latest_ohlcv(pairlist)
+        final_pairs = (pairlist + helping_pairs) if helping_pairs else pairlist
+        self._exchange.refresh_latest_ohlcv(final_pairs)
 
     @property
     def available_pairs(self) -> ListPairsWithTimeframes:
@@ -489,7 +488,7 @@ class DataProvider:
         except ExchangeError:
             return {}
 
-    def orderbook(self, pair: str, maximum: int) -> Dict[str, List]:
+    def orderbook(self, pair: str, maximum: int) -> OrderBook:
         """
         Fetch latest l2 orderbook data
         Warning: Does a network request - so use with common sense.
