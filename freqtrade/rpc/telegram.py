@@ -30,6 +30,7 @@ from freqtrade.exceptions import OperationalException
 from freqtrade.misc import chunks, plural, round_coin_value
 from freqtrade.persistence import Trade
 from freqtrade.rpc import RPC, RPCException, RPCHandler
+from freqtrade.rpc.rpc_types import RPCSendMsg
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,8 @@ def authorized_only(command_handler: Callable[..., None]) -> Callable[..., Any]:
             self._send_msg(str(e))
         except BaseException:
             logger.exception('Exception occurred within Telegram module')
+        finally:
+            Trade.session.remove()
 
     return wrapper
 
@@ -427,14 +430,14 @@ class Telegram(RPCHandler):
             return None
         return message
 
-    def send_msg(self, msg: Dict[str, Any]) -> None:
+    def send_msg(self, msg: RPCSendMsg) -> None:
         """ Send a message to telegram channel """
 
         default_noti = 'on'
 
         msg_type = msg['type']
         noti = ''
-        if msg_type == RPCMessageType.EXIT:
+        if msg['type'] == RPCMessageType.EXIT:
             sell_noti = self._config['telegram'] \
                 .get('notification_settings', {}).get(str(msg_type), {})
             # For backward compatibility sell still can be string
@@ -451,7 +454,7 @@ class Telegram(RPCHandler):
             # Notification disabled
             return
 
-        message = self.compose_message(deepcopy(msg), msg_type)
+        message = self.compose_message(deepcopy(msg), msg_type)  # type: ignore
         if message:
             self._send_msg(message, disable_notification=(noti == 'silent'))
 
@@ -816,7 +819,7 @@ class Telegram(RPCHandler):
         best_pair = stats['best_pair']
         best_pair_profit_ratio = stats['best_pair_profit_ratio']
         if stats['trade_count'] == 0:
-            markdown_msg = 'No trades yet.'
+            markdown_msg = f"No trades yet.\n*Bot started:* `{stats['bot_start_date']}`"
         else:
             # Message to display
             if stats['closed_trade_count'] > 0:
@@ -835,6 +838,7 @@ class Telegram(RPCHandler):
                 f"({profit_all_percent} \N{GREEK CAPITAL LETTER SIGMA}%)`\n"
                 f"∙ `{round_coin_value(profit_all_fiat, fiat_disp_cur)}`\n"
                 f"*Total Trade Count:* `{trade_count}`\n"
+                f"*Bot started:* `{stats['bot_start_date']}`\n"
                 f"*{'First Trade opened' if not timescale else 'Showing Profit since'}:* "
                 f"`{first_trade_date}`\n"
                 f"*Latest Trade opened:* `{latest_trade_date}`\n"
@@ -1340,7 +1344,7 @@ class Telegram(RPCHandler):
         message = tabulate({k: [v] for k, v in counts.items()},
                            headers=['current', 'max', 'total stake'],
                            tablefmt='simple')
-        message = "<pre>{}</pre>".format(message)
+        message = f"<pre>{message}</pre>"
         logger.debug(message)
         self._send_msg(message, parse_mode=ParseMode.HTML,
                        reload_able=True, callback_path="update_count",
@@ -1642,7 +1646,7 @@ class Telegram(RPCHandler):
             ])
         else:
             reply_markup = InlineKeyboardMarkup([[]])
-        msg += "\nUpdated: {}".format(datetime.now().ctime())
+        msg += f"\nUpdated: {datetime.now().ctime()}"
         if not query.message:
             return
         chat_id = query.message.chat_id

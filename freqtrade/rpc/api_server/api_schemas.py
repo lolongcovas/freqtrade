@@ -108,6 +108,8 @@ class Profit(BaseModel):
     max_drawdown: float
     max_drawdown_abs: float
     trading_volume: Optional[float]
+    bot_start_timestamp: int
+    bot_start_date: str
 
 
 class SellReason(BaseModel):
@@ -275,6 +277,10 @@ class TradeSchema(BaseModel):
     liquidation_price: Optional[float]
     funding_fees: Optional[float]
     trading_mode: Optional[TradingMode]
+
+    amount_precision: Optional[float]
+    price_precision: Optional[float]
+    precision_mode: Optional[int]
 
 
 class OpenTradeSchema(TradeSchema):
