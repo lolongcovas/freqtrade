@@ -652,7 +652,7 @@ def test_monthly_handle(default_conf_usdt, update, ticker, fee, mocker, time_mac
 
     # The one-digit months should contain a zero, Eg: September 2021 = "2021-09"
     # Since we loaded the last 12 months, any month should appear
-    assert str('-09') in msg_mock.call_args_list[0][0][0]
+    assert '-09' in msg_mock.call_args_list[0][0][0]
 
     # Try invalid data
     msg_mock.reset_mock()
@@ -671,11 +671,12 @@ def test_monthly_handle(default_conf_usdt, update, ticker, fee, mocker, time_mac
     context = MagicMock()
     context.args = ["february"]
     telegram._monthly(update=update, context=context)
-    assert str('Monthly Profit over the last 6 months</b>:') in msg_mock.call_args_list[0][0][0]
+    assert 'Monthly Profit over the last 6 months</b>:' in msg_mock.call_args_list[0][0][0]
 
 
-def test_profit_handle(default_conf_usdt, update, ticker_usdt, ticker_sell_up, fee,
-                       limit_sell_order_usdt, mocker) -> None:
+def test_telegram_profit_handle(
+        default_conf_usdt, update, ticker_usdt, ticker_sell_up, fee,
+        limit_sell_order_usdt, mocker) -> None:
     mocker.patch('freqtrade.rpc.rpc.CryptoToFiatConverter._find_price', return_value=1.1)
     mocker.patch.multiple(
         EXMS,
@@ -710,6 +711,7 @@ def test_profit_handle(default_conf_usdt, update, ticker_usdt, ticker_sell_up, f
     # Update the ticker with a market going up
     mocker.patch(f'{EXMS}.fetch_ticker', ticker_sell_up)
     # Simulate fulfilled LIMIT_SELL order for trade
+    trade = Trade.session.scalars(select(Trade)).first()
     oobj = Order.parse_from_ccxt_object(
         limit_sell_order_usdt, limit_sell_order_usdt['symbol'], 'sell')
     trade.orders.append(oobj)
@@ -1730,14 +1732,14 @@ def test_version_handle(default_conf, update, mocker) -> None:
 
     telegram._version(update=update, context=MagicMock())
     assert msg_mock.call_count == 1
-    assert '*Version:* `{}`'.format(__version__) in msg_mock.call_args_list[0][0][0]
+    assert f'*Version:* `{__version__}`' in msg_mock.call_args_list[0][0][0]
 
     msg_mock.reset_mock()
     freqtradebot.strategy.version = lambda: '1.1.1'
 
     telegram._version(update=update, context=MagicMock())
     assert msg_mock.call_count == 1
-    assert '*Version:* `{}`'.format(__version__) in msg_mock.call_args_list[0][0][0]
+    assert f'*Version:* `{__version__}`' in msg_mock.call_args_list[0][0][0]
     assert '*Strategy version: * `1.1.1`' in msg_mock.call_args_list[0][0][0]
 
 
@@ -2239,8 +2241,9 @@ def test_send_msg_buy_notification_no_fiat(
     ('Short', 'short_signal_01', 2.0),
 ])
 def test_send_msg_sell_notification_no_fiat(
-        default_conf, mocker, direction, enter_signal, leverage) -> None:
+        default_conf, mocker, direction, enter_signal, leverage, time_machine) -> None:
     del default_conf['fiat_display_currency']
+    time_machine.move_to('2022-05-02 00:00:00 +00:00', tick=False)
     telegram, _, msg_mock = get_telegram_testobject(mocker, default_conf)
 
     telegram.send_msg({
