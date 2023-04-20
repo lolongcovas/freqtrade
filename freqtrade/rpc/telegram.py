@@ -66,10 +66,7 @@ def authorized_only(command_handler: Callable[..., None]) -> Callable[..., Any]:
 
         chat_id = int(self._config['telegram']['chat_id'])
         if cchat_id != chat_id:
-            logger.info(
-                'Rejected unauthorized message from: %s',
-                update.message.chat_id
-            )
+            logger.info(f'Rejected unauthorized message from: {update.message.chat_id}')
             return wrapper
         # Rollback session to avoid getting data stored in a transaction.
         Trade.rollback()
@@ -1421,7 +1418,7 @@ class Telegram(RPCHandler):
     def send_blacklist_msg(self, blacklist: Dict):
         errmsgs = []
         for pair, error in blacklist['errors'].items():
-            errmsgs.append(f"Error adding `{pair}` to blacklist: `{error['error_msg']}`")
+            errmsgs.append(f"Error: {error['error_msg']}")
         if errmsgs:
             self._send_msg('\n'.join(errmsgs))
 
