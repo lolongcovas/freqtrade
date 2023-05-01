@@ -408,6 +408,95 @@ class FreqaiDataKitchen:
 
         return df
 
+    # implements normalization/de-normalization using mean and std
+    def normalize_data_std(self, data_dictionary: Dict) -> Dict[Any, Any]:
+        """
+        Normalize all data in the data_dictionary according to the training dataset
+        :param data_dictionary: dictionary containing the cleaned and
+                                split training/test data/labels
+        :returns:
+        :data_dictionary: updated dictionary with standardized values.
+        """
+
+        # standardize the data by training stats
+        train_avg = data_dictionary["train_features"].mean()
+        train_std = data_dictionary["train_features"].std()
+        data_dictionary["train_features"] = (data_dictionary["train_features"] - train_avg) / train_std
+        data_dictionary["test_features"] = (data_dictionary["test_features"] - train_avg) / train_std
+
+        for item in train_avg.keys():
+            self.data[item + "_avg"] = train_avg[item]
+            self.data[item + "_std"] = train_std[item]
+
+        for item in data_dictionary["train_labels"].keys():
+            if data_dictionary["train_labels"][item].dtype == object:
+                continue
+            train_labels_max = data_dictionary["train_labels"][item].max()
+            train_labels_min = data_dictionary["train_labels"][item].min()
+            data_dictionary["train_labels"][item] = (
+                2
+                * (data_dictionary["train_labels"][item] - train_labels_min)
+                / (train_labels_max - train_labels_min)
+                - 1
+            )
+            if self.freqai_config.get('data_split_parameters', {}).get('test_size', 0.1) != 0:
+                data_dictionary["test_labels"][item] = (
+                    2
+                    * (data_dictionary["test_labels"][item] - train_labels_min)
+                    / (train_labels_max - train_labels_min)
+                    - 1
+                )
+
+            self.data[f"{item}_max"] = train_labels_max
+            self.data[f"{item}_min"] = train_labels_min
+        return data_dictionary
+
+    def normalize_single_dataframe_std(self, df: DataFrame) -> DataFrame:
+        train_avg = df.mean()
+        train_std = df.std()
+        df = (df - train_avg) / train_std
+
+        for item in train_avg.keys():
+            self.data[item + "_avg"] = train_avg[item]
+            self.data[item + "_std"] = train_std[item]
+
+        return df
+
+    def normalize_data_from_metadata_std(self, df: DataFrame) -> DataFrame:
+        """
+        Normalize a set of data using the mean and standard deviation from
+        the associated training data.
+        :param df: Dataframe to be standardized
+        """
+
+        train_avg = [None] * len(df.keys())
+        train_std = [None] * len(df.keys())
+
+        for i, item in enumerate(df.keys()):
+            train_avg[i] = self.data[f"{item}_avg"]
+            train_std[i] = self.data[f"{item}_std"]
+
+        train_avg_series = pd.Series(train_avg, index=df.keys())
+        train_std_series = pd.Series(train_std, index=df.keys())
+
+        df = (df - train_avg_series) / train_std_series
+
+        return df
+
+    def denormalize_labels_from_metadata_std(self, df: DataFrame) -> DataFrame:
+        """
+        Denormalize a set of data using the mean and standard deviation from
+        the associated training data.
+        :param df: Dataframe of predictions to be denormalized
+        """
+
+        for label in df.columns:
+            if df[label].dtype == object or label in self.unique_class_list:
+                continue
+            df[label] = df[label] * self.data[f"{label}_std"] + self.data[f"{label}_avg"]
+
+        return df
+
     def split_timerange(
         self, tr: str, train_split: int = 28, bt_split: float = 7
     ) -> Tuple[list, list]:
@@ -524,9 +613,14 @@ class FreqaiDataKitchen:
             columns=["PC" + str(i) for i in range(0, n_keep_components)],
             index=self.data_dictionary["train_features"].index,
         )
-        # normalsing transformed training features
-        self.data_dictionary["train_features"] = self.normalize_single_dataframe(
-            self.data_dictionary["train_features"])
+        # normalizing transformed training features
+        norm_type = self.freqai_config["feature_parameters"].get("normalization_type", "minmax")
+        if norm_type == "avg_std":
+            self.data_dictionary["train_features"] = self.normalize_single_dataframe_std(
+                self.data_dictionary["train_features"])
+        else:
+            self.data_dictionary["train_features"] = self.normalize_single_dataframe(
+                self.data_dictionary["train_features"])
 
         # keeping a copy of the non-transformed features so we can check for errors during
         # model load from disk
@@ -541,8 +635,13 @@ class FreqaiDataKitchen:
                 index=self.data_dictionary["test_features"].index,
             )
             # normalise transformed test feature to transformed training features
-            self.data_dictionary["test_features"] = self.normalize_data_from_metadata(
-                self.data_dictionary["test_features"])
+            norm_type = self.freqai_config["feature_parameters"].get("normalization_type", "minmax")
+            if norm_type == "avg_std":
+                self.data_dictionary["test_features"] = self.normalize_data_from_metadata_std(
+                    self.data_dictionary["test_features"])
+            else:
+                self.data_dictionary["test_features"] = self.normalize_data_from_metadata(
+                    self.data_dictionary["test_features"])
 
         self.data["n_kept_components"] = n_keep_components
         self.pca = pca

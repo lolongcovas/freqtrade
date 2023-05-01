@@ -54,8 +54,11 @@ class BaseClassifierModel(IFreqaiModel):
         if not self.freqai_info.get("fit_live_predictions_candles", 0) or not self.live:
             dk.fit_labels()
         # normalize all data based on train_dataset only
-        data_dictionary = dk.normalize_data(data_dictionary)
-
+        norm_type = dk.freqai_config["feature_parameters"].get("normalization_type", "minmax")
+        if norm_type == "avg_std":
+            data_dictionary = dk.normalize_data_std(data_dictionary)
+        else:
+            data_dictionary = dk.normalize_data(data_dictionary)
         # optional additional data cleaning/analysis
         self.data_cleaning_train(dk)
 
@@ -89,7 +92,11 @@ class BaseClassifierModel(IFreqaiModel):
         filtered_df, _ = dk.filter_features(
             unfiltered_df, dk.training_features_list, training_filter=False
         )
-        filtered_df = dk.normalize_data_from_metadata(filtered_df)
+        norm_type = dk.freqai_config["feature_parameters"].get("normalization_type", "minmax")
+        if norm_type == "avg_std":
+            filtered_df = dk.normalize_data_from_metadata_std(filtered_df)
+        else:
+            filtered_df = dk.normalize_data_from_metadata(filtered_df)
         dk.data_dictionary["prediction_features"] = filtered_df
 
         self.data_cleaning_predict(dk)
